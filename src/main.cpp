@@ -5,6 +5,14 @@
 #include <iostream>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <emscripten/html5.h>
+#include <emscripten/html5_webgpu.h>
+#endif
+
+// https://github.com/emscripten-core/emscripten/blob/main/test/webgpu_basic_rendering.cpp
+// maybe copy this ?
 WGPUAdapter requestAdapter(WGPUInstance instance, WGPURequestAdapterOptions const* options) {
     struct UserData {
         WGPUAdapter adapter = nullptr;
@@ -68,10 +76,13 @@ int main() {
         return -1;
     }
 
+#ifdef __EMSCRIPTEN__
+    WGPUInstance instance = wgpuCreateInstance(nullptr);
+#else
     WGPUInstanceDescriptor desc = {};
     desc.nextInChain = nullptr;
-
     WGPUInstance instance = wgpuCreateInstance(&desc);
+#endif
 
     if (!instance) {
         std::cerr << "Could not initialize WebGPU" << std::endl;
@@ -92,7 +103,6 @@ int main() {
     WGPUDeviceDescriptor device_desc = {};
     device_desc.nextInChain = nullptr;
     device_desc.label = "device_0";
-    device_desc.requiredFeaturesCount = 0;
     device_desc.requiredLimits = nullptr;
     device_desc.defaultQueue.nextInChain = nullptr;
     device_desc.defaultQueue.label = "default_queue_0";
@@ -225,7 +235,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
         render_pass_desc.colorAttachmentCount = 1;
         render_pass_desc.colorAttachments = &render_pass_color_attachment;
         render_pass_desc.depthStencilAttachment = nullptr;
-        render_pass_desc.timestampWriteCount = 0;
         render_pass_desc.timestampWrites = nullptr;
         render_pass_desc.nextInChain = nullptr;
 
