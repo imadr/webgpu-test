@@ -124,6 +124,79 @@ int main() {
     };
     wgpuQueueOnSubmittedWorkDone(queue, on_queue_work_done, nullptr);
 
+    const char* shader_source = R"(
+struct VertexOutput {
+    @builtin(position) Position : vec4f,
+    @location(0) Color: vec3f
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
+    var output: VertexOutput;
+
+    if (in_vertex_index == 0u) {
+        output.Position = vec4<f32>(-0.5, -0.5, 0.0, 1.0);
+        output.Color = vec3<f32>(1.0, 0.0, 0.0);
+    } else if (in_vertex_index == 1u) {
+        output.Position = vec4<f32>(0.5, -0.5, 0.0, 1.0);
+        output.Color = vec3<f32>(0.0, 1.0, 0.0);
+    } else {
+        output.Position = vec4<f32>(0.0, 0.5, 0.0, 1.0);
+        output.Color = vec3<f32>(0.0, 0.0, 1.0);
+    }
+
+    return output;
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+     return vec4<f32>(input.Color, 1.0);
+}
+)";
+
+    WGPUShaderModuleDescriptor shader_desc{};
+    WGPUShaderModuleWGSLDescriptor shader_code_desc{};
+    shader_code_desc.chain.next = nullptr;
+    shader_code_desc.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
+    shader_code_desc.code = shader_source;
+    shader_desc.nextInChain = &shader_code_desc.chain;
+    WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_desc);
+
+    WGPURenderPipelineDescriptor pipeline_desc{};
+    pipeline_desc.nextInChain = nullptr;
+    pipeline_desc.vertex.bufferCount = 0;
+    pipeline_desc.vertex.buffers = nullptr;
+    pipeline_desc.vertex.module = shader_module;
+    pipeline_desc.vertex.entryPoint = "vs_main";
+    pipeline_desc.vertex.constantCount = 0;
+    pipeline_desc.vertex.constants = nullptr;
+    pipeline_desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    pipeline_desc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+    pipeline_desc.primitive.frontFace = WGPUFrontFace_CCW;
+    pipeline_desc.primitive.cullMode = WGPUCullMode_None;
+    pipeline_desc.layout = nullptr;
+    WGPUFragmentState fragment_state{};
+    fragment_state.module = shader_module;
+    fragment_state.entryPoint = "fs_main";
+    fragment_state.constantCount = 0;
+    fragment_state.constants = nullptr;
+    pipeline_desc.fragment = &fragment_state;
+    pipeline_desc.depthStencil = nullptr;
+    pipeline_desc.multisample.count = 1;
+    pipeline_desc.multisample.mask = ~0u;
+    pipeline_desc.multisample.alphaToCoverageEnabled = false;
+    WGPUBlendState blend_state{};
+    WGPUColorTargetState color_target{};
+    color_target.format = swapchain_format;
+    color_target.blend = &blend_state;
+    color_target.writeMask = WGPUColorWriteMask_All;
+    fragment_state.targetCount = 1;
+    fragment_state.targets = &color_target;
+    blend_state.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    blend_state.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend_state.color.operation = WGPUBlendOperation_Add;
+    WGPURenderPipeline pipeline = wgpuDeviceCreateRenderPipeline(device, &pipeline_desc);
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -147,7 +220,7 @@ int main() {
         render_pass_color_attachment.resolveTarget = nullptr;
         render_pass_color_attachment.loadOp = WGPULoadOp_Clear;
         render_pass_color_attachment.storeOp = WGPUStoreOp_Store;
-        render_pass_color_attachment.clearValue = WGPUColor{0.1, 0.1, 0.1, 1.0};
+        render_pass_color_attachment.clearValue = WGPUColor{0.0, 0.0, 0.0, 1.0};
 
         render_pass_desc.colorAttachmentCount = 1;
         render_pass_desc.colorAttachments = &render_pass_color_attachment;
@@ -158,7 +231,10 @@ int main() {
 
         WGPURenderPassEncoder render_pass =
             wgpuCommandEncoderBeginRenderPass(command_encoder, &render_pass_desc);
+        wgpuRenderPassEncoderSetPipeline(render_pass, pipeline);
+        wgpuRenderPassEncoderDraw(render_pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(render_pass);
+
         wgpuRenderPassEncoderRelease(render_pass);
 
         wgpuTextureViewRelease(next_texture);

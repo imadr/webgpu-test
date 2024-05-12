@@ -19,6 +19,30 @@ to use wgpu with C++ wgpu-native https://github.com/gfx-rs/wgpu-native
 cmake project, easily switch between difference implementations/backends
 Use WEBGPU_BACKEND param in cmake to change backend
 
+-> Dawn isn't working, opened issue https://github.com/eliemichel/WebGPU-distribution/issues/17
+**!! Can't breakpoint debug with wgpu !**
+
+- + **WebGPU-Cpp** wrapper https://github.com/eliemichel/WebGPU-Cpp
+to get "nice" c++ features like namespace and default constructors
+example :
+```
+// C style
+WGPUInstanceDescriptor desc = {};
+desc.nextInChain = nullptr;
+WGPUInstance instance = wgpuCreateInstance(&desc);
+```
+vs
+```
+// C++ style
+wgpu::InstanceDescriptor desc = {};
+wgpu::Instance instance = wgpu::createInstance(&desc);
+```
+
+## Shader compilers
+
+- Tint https://dawn.googlesource.com/tint
+- Naga https://github.com/gfx-rs/wgpu/tree/trunk/naga
+
 ## Setup
 
 - Unzip https://eliemichel.github.io/LearnWebGPU/_downloads/823ae747c9d201d7bfefb17fb832d853/glfw-3.3.8-light.zip in ext
