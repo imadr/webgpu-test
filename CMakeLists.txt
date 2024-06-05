@@ -7,4 +7,5 @@ add_executable(app main.cpp)
 
 set(DAWN_FETCH_DEPENDENCIES ON)
 add_subdirectory("dawn" EXCLUDE_FROM_ALL)
+include_directories(app .)
 target_link_libraries(app PRIVATE webgpu_cpp webgpu_dawn webgpu_glfw)
