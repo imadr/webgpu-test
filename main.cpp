@@ -3,8 +3,13 @@
 #include <webgpu/webgpu_glfw.h>
 
 #include <cstdio>
+#include <iostream>
 
 #include "dawn/native/DawnNative.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define __STDC_LIB_EXT1__
+#include "stb_image_write.h"
 
 const char shaderCode[] = R"(
 struct VertexOutput {
@@ -46,8 +51,17 @@ struct WebGpuRenderer {
 
     wgpu::Device device;
     wgpu::RenderPipeline pipeline;
+    wgpu::TextureView targetTextureView;
+    wgpu::Texture targetTexture;
+    wgpu::BufferDescriptor bufferDesc;
+    wgpu::Buffer buffer;
+
+    uint32_t m_width;
+    uint32_t m_height;
 
     void init(GLFWwindow* window, uint32_t width, uint32_t height) {
+        m_width = width;
+        m_height = height;
         WGPUInstanceDescriptor instanceDescriptor{};
         instanceDescriptor.features.timedWaitAnyEnable = true;
         instance = std::make_unique<dawn::native::Instance>(&instanceDescriptor);
@@ -70,45 +84,29 @@ struct WebGpuRenderer {
             device = wgpu::Device();
             return;
         }
-        std::vector<const char*> enableToggleNames;
-        std::vector<const char*> disabledToggleNames;
-        for (const std::string& toggle : enableToggles) {
-            enableToggleNames.push_back(toggle.c_str());
-        }
-        for (const std::string& toggle : disableToggles) {
-            disabledToggleNames.push_back(toggle.c_str());
-        }
-        WGPUDawnTogglesDescriptor toggles;
-        toggles.chain.sType = WGPUSType_DawnTogglesDescriptor;
-        toggles.chain.next = nullptr;
-        toggles.enabledToggles = enableToggleNames.data();
-        toggles.enabledToggleCount = enableToggleNames.size();
-        toggles.disabledToggles = disabledToggleNames.data();
-        toggles.disabledToggleCount = disabledToggleNames.size();
+
         WGPUDeviceDescriptor deviceDesc = {};
-        deviceDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&toggles);
         WGPUDevice backendDevice = preferredAdapter->CreateDevice(&deviceDesc);
-        DawnProcTable backendProcs = dawn::native::GetProcs();
-        auto surfaceChainedDesc = wgpu::glfw::SetupWindowAndGetSurfaceDescriptor(window);
-        WGPUSurfaceDescriptor surfaceDesc;
-        surfaceDesc.label = "surface";
-        surfaceDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(surfaceChainedDesc.get());
-        WGPUSurface surface = backendProcs.instanceCreateSurface(instance->Get(), &surfaceDesc);
-        WGPUSwapChainDescriptor swapChainDesc = {};
-        swapChainDesc.usage = WGPUTextureUsage_RenderAttachment;
-        swapChainDesc.format = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::BGRA8Unorm);
-        swapChainDesc.width = width;
-        swapChainDesc.height = height;
-        swapChainDesc.presentMode = WGPUPresentMode_Mailbox;
-        WGPUSwapChain backendSwapChain =
-            backendProcs.deviceCreateSwapChain(backendDevice, surface, &swapChainDesc);
+
+        // DawnProcTable backendProcs = dawn::native::GetProcs();
+        // auto surfaceChainedDesc = wgpu::glfw::SetupWindowAndGetSurfaceDescriptor(window);
+        // WGPUSurfaceDescriptor surfaceDesc;
+        // surfaceDesc.label = "surface";
+        // surfaceDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(surfaceChainedDesc.get());
+        // WGPUSurface surface = backendProcs.instanceCreateSurface(instance->Get(), &surfaceDesc);
+        // WGPUSwapChainDescriptor swapChainDesc = {};
+        // swapChainDesc.usage = WGPUTextureUsage_RenderAttachment;
+        // swapChainDesc.format = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::BGRA8Unorm);
+        // swapChainDesc.width = width;
+        // swapChainDesc.height = height;
+        // swapChainDesc.presentMode = WGPUPresentMode_Mailbox;
+        // WGPUSwapChain backendSwapChain =
+        //     backendProcs.deviceCreateSwapChain(backendDevice, surface, &swapChainDesc);
+        // swapChain = wgpu::SwapChain::Acquire(backendSwapChain);
 
         WGPUDevice cDevice = nullptr;
-        DawnProcTable procs;
 
-        procs = backendProcs;
         cDevice = backendDevice;
-        swapChain = wgpu::SwapChain::Acquire(backendSwapChain);
 
         device = wgpu::Device::Acquire(cDevice);
 
@@ -127,12 +125,41 @@ struct WebGpuRenderer {
         wgpu::RenderPipelineDescriptor descriptor{.vertex = {.module = shaderModule},
                                                   .fragment = &fragmentState};
         pipeline = device.CreateRenderPipeline(&descriptor);
+
+        wgpu::TextureDescriptor targetTextureDesc;
+        targetTextureDesc.label = "Render target";
+        targetTextureDesc.dimension = wgpu::TextureDimension::e2D;
+        targetTextureDesc.size = {width, height, 1};
+        targetTextureDesc.format = wgpu::TextureFormat::RGBA8UnormSrgb;
+        targetTextureDesc.mipLevelCount = 1;
+        targetTextureDesc.sampleCount = 1;
+        targetTextureDesc.usage =
+            wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc;
+        targetTextureDesc.viewFormats = nullptr;
+        targetTextureDesc.viewFormatCount = 0;
+        targetTexture = device.CreateTexture(&targetTextureDesc);
+
+        wgpu::TextureViewDescriptor targetTextureViewDesc;
+        targetTextureViewDesc.label = "Render texture view";
+        targetTextureViewDesc.baseArrayLayer = 0;
+        targetTextureViewDesc.arrayLayerCount = 1;
+        targetTextureViewDesc.baseMipLevel = 0;
+        targetTextureViewDesc.mipLevelCount = 1;
+        targetTextureViewDesc.aspect = wgpu::TextureAspect::All;
+        targetTextureView = targetTexture.CreateView(&targetTextureViewDesc);
+
+        bufferDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
+        bufferDesc.mappedAtCreation = false;
+        bufferDesc.size = width * height * 4;
+        buffer = device.CreateBuffer(&bufferDesc);
     }
 
     void draw() {
-        wgpu::RenderPassColorAttachment attachment{.view = swapChain.GetCurrentTextureView(),
+        wgpu::RenderPassColorAttachment attachment{//.view = swapChain.GetCurrentTextureView(),
+                                                   .view = targetTextureView,
                                                    .loadOp = wgpu::LoadOp::Clear,
-                                                   .storeOp = wgpu::StoreOp::Store};
+                                                   .storeOp = wgpu::StoreOp::Store,
+                                                   .clearValue = wgpu::Color{0.5, 0.5, 0.5, 1.0}};
 
         wgpu::RenderPassDescriptor renderpass{.colorAttachmentCount = 1,
                                               .colorAttachments = &attachment};
@@ -145,7 +172,67 @@ struct WebGpuRenderer {
         wgpu::CommandBuffer commands = encoder.Finish();
         device.GetQueue().Submit(1, &commands);
 
-        swapChain.Present();
+        //////////////////////
+        // swapChain.Present();
+        ///////////////////////
+
+        encoder = device.CreateCommandEncoder();
+        wgpu::ImageCopyTexture source;
+        source.texture = targetTexture;
+
+        wgpu::ImageCopyBuffer destination;
+        destination.buffer = buffer;
+        destination.layout.bytesPerRow = 4 * m_width;
+        destination.layout.offset = 0;
+        destination.layout.rowsPerImage = m_height;
+        wgpu::Extent3D copyExtent = {m_width, m_height, 1};
+        encoder.CopyTextureToBuffer(&source, &destination, &copyExtent);
+
+        commands = encoder.Finish();
+        device.GetQueue().Submit(1, &commands);
+
+        /////////////////////
+
+        struct UserData {
+            wgpu::BufferDescriptor* bufferDesc;
+            wgpu::Buffer* buffer;
+            int width;
+            int height;
+        };
+
+        UserData userData = {&bufferDesc, &buffer, m_width, m_height};
+
+        buffer.MapAsync(
+            wgpu::MapMode::Read, 0, bufferDesc.size,
+            [](WGPUBufferMapAsyncStatus status, void* userdata_) {
+                UserData* userData = (UserData*)userdata_;
+                if (status == WGPUBufferMapAsyncStatus_Success) {
+                    wgpu::Buffer* buffer = static_cast<wgpu::Buffer*>(userData->buffer);
+                    wgpu::BufferDescriptor* bufferDesc =
+                        static_cast<wgpu::BufferDescriptor*>(userData->bufferDesc);
+
+                    unsigned char* pixelData =
+                        (unsigned char*)buffer->GetConstMappedRange(0, bufferDesc->size);
+
+                    if (pixelData == NULL) {
+                        return;
+                    }
+                    std::vector<char> vec(pixelData, pixelData + bufferDesc->size);
+
+                    int bytesPerRow = 4 * userData->width;
+                    int success = stbi_write_png("test_output_buffer.png", (int)userData->width,
+                                                 (int)userData->height, 4, pixelData, bytesPerRow);
+
+                    buffer->Unmap();
+                } else {
+                    std::cerr << "Error: Failed to map buffer to CPU memory. Error code: " << status
+                              << std::endl;
+                }
+            },
+            (void*)(&userData));
+
+        device.Tick();
+
         dawn::native::InstanceProcessEvents(instance->Get());
     }
 };

@@ -3,7 +3,7 @@ project(webgpu-test)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(app main.cpp)
+add_executable(app main.cpp stb_image_write.h)
 
 set(DAWN_FETCH_DEPENDENCIES ON)
 add_subdirectory("dawn" EXCLUDE_FROM_ALL)
